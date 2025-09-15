@@ -1,141 +1,433 @@
+<!-- Save this as index.html and serve as a static site -->
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Gears • Globe • Aurora</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Realistic Gears • Space Globe • Aurora</title>
   <style>
-    html,body{height:100%;margin:0;background:#01020a;overflow:hidden;color:#ddd;font-family:system-ui,Segoe UI,Roboto,Arial}
-    #container{position:relative;width:100vw;height:100vh}
-    canvas, #three-root{position:absolute;left:0;top:0;width:100%;height:100%}
-    .ui{position:absolute;left:16px;top:16px;z-index:40;background:rgba(0,0,0,0.35);backdrop-filter:blur(6px);padding:10px;border-radius:8px}
-    .ui label{display:flex;align-items:center;gap:8px}
-    #gears-wrap{position:absolute;left:16px;bottom:16px;z-index:30}
-    svg.gear{filter:drop-shadow(0 6px 18px rgba(0,0,0,0.6))}
+    html,body{height:100%;margin:0;background:#000;overflow:hidden;font-family:system-ui,Segoe UI,Roboto,Arial}
+    #app{width:100vw;height:100vh;position:relative}
+    #ui{position:absolute;left:12px;top:12px;z-index:50;color:#ddd;background:rgba(0,0,0,0.35);padding:10px;border-radius:8px;backdrop-filter:blur(4px)}
+    label{display:flex;align-items:center;gap:8px;font-size:13px}
+    .hint{font-size:12px;color:#aaa;margin-top:6px}
+    button{margin-top:6px;padding:6px 10px;border-radius:6px;border:0;background:#177; color:white}
   </style>
 </head>
 <body>
-<div id="container">
-  <div id="three-root"></div>
-  <canvas id="aurora"></canvas>
-
-  <div class="ui">
-    <div><strong>Gears • Globe • Aurora</strong></div>
-    <label>Globe speed <input id="globeSpeed" type="range" min="0" max="2" step="0.01" value="0.35"></label>
-    <label>Aurora intensity <input id="auroraInt" type="range" min="0" max="1.5" step="0.01" value="0.9"></label>
-    <label>Gear speed <input id="gearSpeed" type="range" min="-2" max="2" step="0.01" value="0.5"></label>
+<div id="app">
+  <div id="ui">
+    <div style="font-weight:600">Real Gears • Space Globe • Aurora</div>
+    <label>Camera speed <input id="camSpeed" type="range" min="0" max="2" step="0.01" value="0.6"></label>
+    <label>Globe spin <input id="globeSpin" type="range" min="0" max="1.5" step="0.01" value="0.28"></label>
+    <label>Gear RPM <input id="gearRPM" type="range" min="-3" max="3" step="0.01" value="0.9"></label>
+    <label>Aurora strength <input id="auroraStrength" type="range" min="0" max="2" step="0.01" value="0.9"></label>
+    <div class="hint">Tip: drag mouse to orbit, scroll to zoom. For max quality use desktop browser.</div>
+    <button id="resetBtn">Reset View</button>
   </div>
-
-  <div id="gears-wrap"></div>
+  <canvas id="bg"></canvas>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.min.js"></script>
-<script>
-// ----- Three.js rotating globe -----
-const root = document.getElementById('three-root');
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(40, window.innerWidth/window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true});
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio || 1);
-root.appendChild(renderer.domElement);
-camera.position.z = 3.6;
+<script type="module">
+/* Realistic Space + Globe + Gears single-file demo
+   - Uses three.js modules from jsDelivr
+   - Extrudes simple gear tooth shapes into 3D geometry
+   - Adds starfield + volumetric-like aurora plane + camera motion
+   - All in one file for static hosting
+*/
 
-function makeEarthTexture(){
-  const c = document.createElement('canvas'); c.width=1024; c.height=512;
+// --- Imports (ES modules from CDN) ---
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.module.js';
+import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.154.0/examples/jsm/controls/OrbitControls.js';
+import { FXAAShader } from 'https://cdn.jsdelivr.net/npm/three@0.154.0/examples/jsm/shaders/FXAAShader.js';
+import { GUI } from 'https://cdn.jsdelivr.net/npm/three@0.154.0/examples/jsm/libs/lil-gui.module.min.js';
+
+// --- Basic renderer + canvas ---
+const canvas = document.getElementById('bg');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1.5, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000005); // deep space tint
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 2000);
+camera.position.set(0, 3.2, 10);
+
+// Orbit controls (for user view)
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.12;
+controls.minDistance = 3;
+controls.maxDistance = 60;
+
+// handle resize
+function onResize(){
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize, {passive:true});
+onResize();
+
+// --- Lighting (to sell metal look) ---
+const hemi = new THREE.HemisphereLight(0x8AAFFF, 0x08111A, 0.45);
+scene.add(hemi);
+
+const key = new THREE.DirectionalLight(0xffffff, 1.1);
+key.position.set(10, 12, 8);
+key.castShadow = true;
+key.shadow.camera.near = 1;
+key.shadow.camera.far = 200;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.bias = -0.0002;
+scene.add(key);
+
+// fill rim light
+const rim = new THREE.DirectionalLight(0xA6F0FF, 0.18);
+rim.position.set(-6, 4, -10);
+scene.add(rim);
+
+// --- Starfield: layered particle clouds with depth ---
+function makeStarCloud(count, radiusMin = 60, radiusMax = 400, size = 0.6){
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3);
+  const sizes = new Float32Array(count);
+  for(let i=0;i<count;i++){
+    const r = radiusMin + Math.random() * (radiusMax - radiusMin);
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos((Math.random() * 2) - 1);
+    const x = Math.sin(phi) * Math.cos(theta) * r;
+    const y = Math.sin(phi) * Math.sin(theta) * r * 0.8;
+    const z = Math.cos(phi) * r;
+    pos[i*3] = x; pos[i*3+1] = y; pos[i*3+2] = z;
+    sizes[i] = size * (0.6 + Math.random()*1.6);
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+  const mat = new THREE.PointsMaterial({ color: 0xffffff, size: size, sizeAttenuation: true, depthWrite: false, transparent:true, opacity:0.9 });
+  const pts = new THREE.Points(geo, mat);
+  return pts;
+}
+const starsNear = makeStarCloud(2500, 50, 180, 1.1);
+const starsFar  = makeStarCloud(5000, 180, 900, 0.6);
+scene.add(starsFar);
+scene.add(starsNear);
+
+// subtle galaxy band texture behind (soft sprite)
+const galaxyTex = new THREE.CanvasTexture((()=>{
+  const c = document.createElement('canvas'); c.width=2048; c.height=512;
   const ctx = c.getContext('2d');
-  ctx.fillStyle='#071233'; ctx.fillRect(0,0,c.width,c.height);
-  ctx.fillStyle='#2a6b2f';
-  for(let i=0;i<300;i++){
-    const x=Math.random()*c.width, y=Math.random()*c.height, w=4+Math.random()*40, h=w*(0.3+Math.random()*1.8);
+  const grd = ctx.createLinearGradient(0,0,c.width,0);
+  grd.addColorStop(0,'rgba(20,30,70,0)');
+  grd.addColorStop(0.35,'rgba(80,100,160,0.15)');
+  grd.addColorStop(0.65,'rgba(140,180,220,0.25)');
+  grd.addColorStop(1,'rgba(20,30,70,0)');
+  ctx.fillStyle=grd; ctx.fillRect(0,0,c.width,c.height);
+  // add noise
+  ctx.globalAlpha = 0.06;
+  for(let i=0;i<15000;i++){
+    ctx.fillStyle = `rgba(255,255,255,${Math.random()*0.7})`;
+    ctx.fillRect(Math.random()*c.width, Math.random()*c.height, 1, 1);
+  }
+  return c;
+})());
+const galaxyMat = new THREE.SpriteMaterial({ map: galaxyTex, color: 0xffffff, transparent:true, opacity:0.9, depthWrite:false });
+const galaxySpr = new THREE.Sprite(galaxyMat);
+galaxySpr.scale.set(600, 150, 1);
+galaxySpr.position.set(-80, 20, -200);
+scene.add(galaxySpr);
+
+// --- Real-ish globe ---
+// procedural-ish canvas texture for planet (night oceans + lit continents)
+function makeGlobeTexture(size=2048){
+  const c = document.createElement('canvas'); c.width=size; c.height=size/2;
+  const ctx = c.getContext('2d');
+  // deep ocean base
+  ctx.fillStyle = '#04102a'; ctx.fillRect(0,0,c.width,c.height);
+  // continents: many ellipses with blur to approximate realism (stylized)
+  ctx.fillStyle = '#39563A';
+  for(let i=0;i<700;i++){
+    const w = 20 + Math.random()*250;
+    const h = w * (0.25 + Math.random()*1.5);
+    const x = Math.random()*c.width;
+    const y = Math.random()*c.height;
     ctx.beginPath(); ctx.ellipse(x,y,w,h,Math.random()*Math.PI,0,Math.PI*2); ctx.fill();
   }
-  ctx.globalAlpha=0.08; ctx.fillStyle='#ffffff';
-  for(let i=0;i<700;i++){ const x=Math.random()*c.width, y=Math.random()*c.height, r=1+Math.random()*4; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); }
+  // coastal glow
+  ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.06;
+  ctx.fillStyle = '#2ca2ff';
+  for(let i=0;i<300;i++){ ctx.beginPath(); ctx.ellipse(Math.random()*c.width, Math.random()*c.height, 1+Math.random()*6, 1+Math.random()*6, 0,0,Math.PI*2); ctx.fill(); }
+  // city lights (random bright dots on some land areas)
+  ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.55;
+  ctx.fillStyle = '#ffd86b';
+  for(let i=0;i<2000;i++){
+    if(Math.random() > 0.78) continue;
+    const x = Math.random()*c.width;
+    const y = Math.random()*c.height;
+    ctx.fillRect(x, y, Math.random()*1.8, Math.random()*1.8);
+  }
   return new THREE.CanvasTexture(c);
 }
-const globe = new THREE.Mesh(new THREE.SphereGeometry(1.2, 64, 64),
-  new THREE.MeshStandardMaterial({map: makeEarthTexture(), metalness:0.05, roughness:0.9}));
+
+const globeGeo = new THREE.SphereGeometry(1.95, 128, 96);
+const globeMat = new THREE.MeshStandardMaterial({
+  map: makeGlobeTexture(2048),
+  metalness: 0.02,
+  roughness: 0.7,
+  emissive: new THREE.Color(0x051833).multiplyScalar(0.4),
+});
+const globe = new THREE.Mesh(globeGeo, globeMat);
+globe.castShadow = true;
+globe.receiveShadow = true;
+globe.position.set(0, 2.3, 0);
 scene.add(globe);
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-const dir = new THREE.DirectionalLight(0xffffff, 0.6); dir.position.set(5,3,5); scene.add(dir);
 
-// starfield
-const starGeo = new THREE.BufferGeometry();
-const starCount = 4000; const starPos = new Float32Array(starCount*3);
-for(let i=0;i<starCount;i++){ const r=30+Math.random()*100; const theta=Math.random()*Math.PI*2; const phi=(Math.random()*2-1)*Math.PI/2; starPos[i*3]=Math.cos(theta)*Math.cos(phi)*r; starPos[i*3+1]=Math.sin(phi)*r; starPos[i*3+2]=Math.sin(theta)*Math.cos(phi)*r; }
-starGeo.setAttribute('position', new THREE.BufferAttribute(starPos,3));
-scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({size:0.6, opacity:0.9})));
+// subtle cloud layer (semi-transparent sphere)
+const cloudGeo = new THREE.SphereGeometry(1.96, 64, 48);
+const cloudMat = new THREE.MeshStandardMaterial({ color:0xffffff, opacity:0.06, transparent:true, depthWrite:false });
+const clouds = new THREE.Mesh(cloudGeo, cloudMat);
+globe.add(clouds);
 
-// ----- Aurora overlay -----
-const auroraCanvas = document.getElementById('aurora');
-const aCtx = auroraCanvas.getContext('2d');
-function resizeAurora(){ auroraCanvas.width = window.innerWidth; auroraCanvas.height = window.innerHeight; }
-resizeAurora();
-window.addEventListener('resize', ()=>{camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); resizeAurora();});
-
-function auroraFrame(t, intensity=1.0){
-  const w = auroraCanvas.width, h = auroraCanvas.height;
-  aCtx.clearRect(0,0,w,h);
-  aCtx.fillStyle = 'rgba(0,0,6,0.35)'; aCtx.fillRect(0,0,w,h);
-  aCtx.globalCompositeOperation = 'lighter';
-  for(let layer=0; layer<5; layer++){
-    const base = (layer*0.7 + t*0.0003*(1+layer));
-    const grad = aCtx.createLinearGradient(0,h*0.2,0,h*0.8);
-    const hue = 140 + 40*Math.sin(layer+0.2*t*0.001);
-    grad.addColorStop(0, `rgba(${Math.floor(hue+10)},180,220,${0.02*intensity})`);
-    grad.addColorStop(0.5, `rgba(${Math.floor(hue+80)},230,200,${0.08*intensity})`);
-    grad.addColorStop(1, `rgba(0,0,0,0)`);
-    aCtx.fillStyle = grad;
-    aCtx.beginPath();
-    const amplitude = 80 + layer*30 + 30*Math.sin(base*0.7);
-    aCtx.moveTo(0,h);
-    for(let x=0;x<=w;x+=8){
-      const nx = x/w*6;
-      const y = h*0.2 + Math.sin(nx*1.5 + base*0.8)*amplitude + Math.sin(nx*3.2 + base*0.3)*20;
-      aCtx.lineTo(x, y);
-    }
-    aCtx.lineTo(w,h); aCtx.closePath(); aCtx.fill();
+// --- Gears: extruded shape for realistic teeth ---
+// Create a 2D gear-shaped contour (approx rectangular teeth approximation) and extrude
+function createGearShape(teeth, radius, toothDepth) {
+  const shape = new THREE.Shape();
+  const steps = teeth * 4; // more points for smoother outline
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    // use mod to make pronounced tooth at intervals
+    const toothPhase = (i % 4);
+    const r = radius + (toothPhase === 0 ? toothDepth : (toothPhase === 1 ? toothDepth*0.4 : 0));
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
   }
-  aCtx.globalCompositeOperation = 'source-over';
+  // center hole subtract later in geometry creation using path
+  const holeRadius = Math.max(8, radius * 0.22);
+  const hole = new THREE.Path();
+  hole.absellipse(0, 0, holeRadius, holeRadius, 0, Math.PI * 2, false, 0);
+  shape.holes.push(hole);
+  return shape;
 }
 
-// ----- SVG Gears -----
-function gearPath(teeth, radius){
-  const toothDepth = radius*0.12; const rOuter = radius + toothDepth; const rInner = radius - toothDepth*0.4;
-  let d = ''; const steps = teeth*2;
-  for(let i=0;i<steps;i++){ const angle = (i/steps)*Math.PI*2; const r=(i%2==0)?rOuter:rInner; const x=Math.cos(angle)*r, y=Math.sin(angle)*r; d += (i===0?`M ${x} ${y}`:` L ${x} ${y}`); }
-  return d+' Z';
+function makeGearMesh(teeth, radius, width, colorHex) {
+  const toothDepth = Math.max(4, radius * 0.12);
+  const shape = createGearShape(teeth, radius, toothDepth);
+  const extrudeSettings = { depth: width, bevelEnabled: true, bevelThickness: width*0.05, bevelSize: width*0.03, bevelSegments: 2 };
+  const geom = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+  geom.center();
+  // add small phong-like normal detail by computing vertex normals (already present)
+  const mat = new THREE.MeshStandardMaterial({
+    color: colorHex,
+    metalness: 0.95,
+    roughness: 0.28,
+    envMapIntensity: 1.0,
+    clearcoat: 0.2,
+    clearcoatRoughness: 0.1
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
 }
-function makeGear(id, teeth, radius, color){
-  const ns='http://www.w3.org/2000/svg'; const svg=document.createElementNS(ns,'svg');
-  svg.setAttribute('width', radius*2+40); svg.setAttribute('height', radius*2+40);
-  svg.setAttribute('viewBox', `${-radius-20} ${-radius-20} ${radius*2+40} ${radius*2+40}`);
-  svg.classList.add('gear'); svg.dataset.teeth=teeth; svg.style.margin='6px';
-  const path=document.createElementNS(ns,'path'); path.setAttribute('d',gearPath(teeth,radius)); path.setAttribute('fill',color); path.setAttribute('stroke','rgba(255,255,255,0.06)'); svg.appendChild(path);
-  const hole=document.createElementNS(ns,'circle'); hole.setAttribute('r',Math.max(6,radius*0.2)); hole.setAttribute('fill','rgba(0,0,0,0.25)'); svg.appendChild(hole);
-  document.getElementById('gears-wrap').appendChild(svg);
-  return svg;
+
+// Build a small gear train and position underneath the globe (like mechanisms inside a clock)
+const gearGroup = new THREE.Group();
+gearGroup.position.set(0, -0.8, 0); // below globe
+scene.add(gearGroup);
+
+// Driver gear (bigger)
+const g1 = makeGearMesh(48, 3.2, 0.6, 0xB49A6C);
+g1.position.set(-1.6, 0, 0);
+g1.rotation.x = Math.PI * 0.5;
+gearGroup.add(g1);
+
+// idler gear
+const g2 = makeGearMesh(28, 2.0, 0.55, 0x8DA6B9);
+g2.position.set(0.3, 0, 0.8);
+g2.rotation.x = Math.PI * 0.5;
+gearGroup.add(g2);
+
+// small gear
+const g3 = makeGearMesh(18, 1.2, 0.45, 0xB07F9C);
+g3.position.set(1.7, 0, -0.1);
+g3.rotation.x = Math.PI * 0.5;
+gearGroup.add(g3);
+
+// thin base plate to anchor gears (dark metal)
+const plateGeo = new THREE.CylinderGeometry(5.8, 5.8, 0.26, 64);
+const plateMat = new THREE.MeshStandardMaterial({ color: 0x0c1116, metalness: 0.7, roughness: 0.55 });
+const plate = new THREE.Mesh(plateGeo, plateMat);
+plate.rotation.x = Math.PI * 0.5;
+plate.position.set(0, -1.05, 0);
+plate.receiveShadow = true;
+scene.add(plate);
+
+// Cast a soft shadow plane under everything (invisible but receives)
+const shadowGeo = new THREE.PlaneGeometry(80, 80);
+const shadowMat = new THREE.MeshStandardMaterial({ color:0x000000, transparent:true, opacity:0.12 });
+const shadowPlane = new THREE.Mesh(shadowGeo, shadowMat);
+shadowPlane.rotation.x = -Math.PI * 0.5;
+shadowPlane.position.y = -1.4;
+shadowPlane.receiveShadow = true;
+scene.add(shadowPlane);
+
+// --- Aurora: large translucent plane with animated procedural texture (shader-like using canvas) ---
+const auroraCanvas = document.createElement('canvas');
+auroraCanvas.width = 2048; auroraCanvas.height = 512;
+const actx = auroraCanvas.getContext('2d');
+
+function updateAuroraTexture(time, strength=1.0) {
+  const w = auroraCanvas.width, h = auroraCanvas.height;
+  actx.clearRect(0, 0, w, h);
+  // layered sin-waves with vertical gradient and blur effect
+  for (let layer = 0; layer < 5; layer++) {
+    const alpha = 0.02 * strength * (1 + layer*0.6);
+    const hue = 150 + layer*16 + Math.sin(time*0.0003 + layer)*12;
+    const grad = actx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, `hsla(${hue}, 95%, 65%, ${alpha})`);
+    grad.addColorStop(0.5, `hsla(${hue+30}, 95%, 55%, ${alpha*2})`);
+    grad.addColorStop(1, `hsla(${hue+80}, 95%, 45%, 0)`);
+    actx.fillStyle = grad;
+    actx.beginPath();
+    actx.moveTo(0, h);
+    const amp = 30 + layer*30;
+    for (let x = 0; x <= w; x += 8) {
+      const nx = x / w * 8;
+      const y = h * 0.25 + Math.sin(nx*1.8 + time*0.0002*(1+layer*0.1) + layer*0.5) * amp + Math.sin(nx*5.2 + time*0.0001)*(10+layer*6);
+      actx.lineTo(x, y);
+    }
+    actx.lineTo(w, h);
+    actx.closePath();
+    actx.globalCompositeOperation = 'lighter';
+    actx.fill();
+    actx.globalCompositeOperation = 'source-over';
+  }
+  // soft blur effect: draw scaled down and back up to blur edges (cheap)
+  const tmp = document.createElement('canvas'); tmp.width = 512; tmp.height = 128;
+  tmp.getContext('2d').drawImage(auroraCanvas, 0, 0, tmp.width, tmp.height);
+  actx.globalAlpha = 0.9;
+  actx.drawImage(tmp, 0, 0, tmp.width, tmp.height, 0, 0, w, h);
+  actx.globalAlpha = 1.0;
 }
-const gears=[makeGear('g1',40,60,'#c9a66b'), makeGear('g2',24,40,'#8fb0c8'), makeGear('g3',16,28,'#b08ea6')];
+const auroraTex = new THREE.CanvasTexture(auroraCanvas);
+auroraTex.wrapS = auroraTex.wrapT = THREE.RepeatWrapping;
+auroraTex.repeat.set(1, 1);
+const auroraMat = new THREE.MeshBasicMaterial({ map: auroraTex, transparent: true, opacity: 0.9, depthWrite:false, blending: THREE.AdditiveBlending });
+const auroraGeo = new THREE.PlaneGeometry(30, 6, 32, 4);
+const auroraMesh = new THREE.Mesh(auroraGeo, auroraMat);
+auroraMesh.position.set(0, 6.5, -6);
+auroraMesh.rotation.x = -0.28;
+scene.add(auroraMesh);
 
-// ----- Animation -----
-let last=performance.now(), globeSpeed=parseFloat(globeSpeed.value), auroraInt=parseFloat(auroraInt.value), gearSpeed=parseFloat(gearSpeed.value);
-document.getElementById('globeSpeed').oninput=e=>globeSpeed=parseFloat(e.target.value);
-document.getElementById('auroraInt').oninput=e=>auroraInt=parseFloat(e.target.value);
-document.getElementById('gearSpeed').oninput=e=>gearSpeed=parseFloat(e.target.value);
+// Add gentle light sprites to simulate bloom around strong lights (glow)
+function makeGlowSprite(size = 80, intensity = 0.6) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(128,128,10,128,128,128);
+  g.addColorStop(0, `rgba(255,255,220,${intensity})`);
+  g.addColorStop(0.3, 'rgba(255,200,160,0.12)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(0,0,c.width,c.height);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({ map: tex, color: 0xffffff, opacity: 0.9, depthWrite:false, transparent:true});
+  const sp = new THREE.Sprite(mat);
+  sp.scale.set(size, size, 1);
+  return sp;
+}
+const glow = makeGlowSprite(220, 0.85);
+glow.position.set(6, 5, 2);
+scene.add(glow);
 
+// --- Animation & controls for realism ---
+
+let prevTime = performance.now();
+const camSpeedSlider = document.getElementById('camSpeed');
+const globeSpinSlider = document.getElementById('globeSpin');
+const gearRPMSlider = document.getElementById('gearRPM');
+const auroraStrengthSlider = document.getElementById('auroraStrength');
+document.getElementById('resetBtn').onclick = () => { controls.reset(); camera.position.set(0,3.2,10); };
+
+let baseCamSpeed = parseFloat(camSpeedSlider.value);
+camSpeedSlider.addEventListener('input', () => baseCamSpeed = parseFloat(camSpeedSlider.value));
+let globeSpin = parseFloat(globeSpinSlider.value);
+globeSpinSlider.addEventListener('input', () => globeSpin = parseFloat(globeSpinSlider.value));
+let gearRPM = parseFloat(gearRPMSlider.value);
+gearRPMSlider.addEventListener('input', () => gearRPM = parseFloat(gearRPMSlider.value));
+let auroraStrength = parseFloat(auroraStrengthSlider.value);
+auroraStrengthSlider.addEventListener('input', () => auroraStrength = parseFloat(auroraStrengthSlider.value));
+
+// gear rotation sign: alternate meshing directions
+function stepGearAngles(time, dt){
+  // driver angular velocity (radians per second) from RPM-like slider
+  const baseAngular = gearRPM * 1.2; // scale
+  // compute angle for each gear scaled by teeth ratio
+  const t0 = baseAngular * (time * 0.001);
+  const teeth0 = 48, teeth1 = 28, teeth2 = 18;
+  g1.rotation.z = t0 * (teeth0/teeth0);  // driver
+  g2.rotation.z = -t0 * (teeth0/teeth1); // opposite direction
+  g3.rotation.z = t0 * (teeth0/teeth2);  // back same direction depending on chain
+}
+
+// camera flythrough motion: slight forward drift + subtle curves to make it cinematic
+let camDrift = 0;
+function stepCamera(time, dt){
+  camDrift += dt * 0.02 * baseCamSpeed;
+  // orbit slightly around the scene center while moving slightly forward/back
+  const radius = 10 - Math.sin(time*0.00012)*2 - Math.min(baseCamSpeed*2.2, 6);
+  const angle = time*0.00018 * (0.5 + baseCamSpeed*0.4);
+  const y = 3 + Math.sin(time*0.00019)*0.6;
+  camera.position.x = Math.cos(angle) * radius;
+  camera.position.z = Math.sin(angle) * radius;
+  camera.position.y = y;
+  camera.lookAt(0, 1.5, 0);
+}
+
+// subtle parallax for stars (move star point clouds a little)
+function stepStarfield(time){
+  starsNear.rotation.y = time*0.00003;
+  starsFar.rotation.y = -time*0.00001;
+  galaxySpr.rotation.z = Math.sin(time*0.00007)*0.07;
+  // slight positional parallax
+  starsNear.position.x = Math.sin(time*0.00011) * 2;
+  starsNear.position.y = Math.cos(time*0.00009) * 1.6;
+}
+
+// --- Main loop ---
 function animate(now){
-  const dt=(now-last)/1000; last=now;
-  globe.rotation.y+=dt*globeSpeed*0.25;
-  globe.rotation.x=Math.sin(now*0.0002)*0.02; globe.rotation.z=Math.sin(now*0.00013)*0.01;
-  const base=gearSpeed*1.5; const t0=base*now*0.001; const teeth0=parseFloat(gears[0].dataset.teeth);
-  gears.forEach((g,i)=>{let angle=t0*(teeth0/parseFloat(g.dataset.teeth)); if(i%2==1) angle=-angle; g.style.transform=`rotate(${angle}rad)`;});
-  renderer.render(scene,camera);
-  auroraFrame(now,auroraInt);
+  const dt = Math.min(0.06, (now - prevTime) / 1000);
+  prevTime = now;
+
+  // globe spins slowly
+  globe.rotation.y += dt * globeSpin * 0.2;
+  clouds.rotation.y += dt * globeSpin * 0.22;
+
+  // gears rotate with realistic ratios
+  stepGearAngles(now, dt);
+
+  // camera cinematic path
+  stepCamera(now, dt);
+
+  // starfield motion
+  stepStarfield(now);
+
+  // aurora update (canvas texture)
+  updateAuroraTexture(now, auroraStrength);
+  auroraTex.needsUpdate = true;
+  // aurora gentle horizontal scroll
+  auroraTex.offset.x = (now * 0.00006) % 1;
+
+  controls.update();
+  renderer.render(scene, camera);
+
   requestAnimationFrame(animate);
 }
 requestAnimationFrame(animate);
+
 </script>
 </body>
 </html>
